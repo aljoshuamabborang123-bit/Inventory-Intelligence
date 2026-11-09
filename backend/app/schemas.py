@@ -215,3 +215,41 @@ class MaintenanceTaskResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class MaintenanceTaskSummaryResponse(BaseModel):
+    total_tasks: int
+    pending_tasks: int
+    in_progress_tasks: int
+    completed_tasks: int
+    cancelled_tasks: int
+
+class MaintenanceTaskCompletionRateResponse(BaseModel):
+    total_tasks: int
+    completed_tasks: int
+    completion_rate: float
+
+class OverdueMaintenanceTaskResponse(BaseModel):
+    task_id: int
+    title: str
+    unit_id: int
+    building_name: str
+    unit_number: str
+    assigned_to: str | None
+    priority: WorkOrderPriority
+    due_date: date
+    days_overdue: int
+
+class MaintenanceTaskAssigneeAnalyticsResponse(BaseModel):
+    assigned_to: str
+    total_tasks: int
+    pending_tasks: int
+    in_progress_tasks: int
+    completed_tasks: int
+
+class MaintenanceTaskBuildingAnalyticsResponse(BaseModel):
+    building_name: str
+    total_tasks: int
+    pending_tasks: int
+    in_progress_tasks: int
+    completed_tasks: int
+    cancelled_tasks: int

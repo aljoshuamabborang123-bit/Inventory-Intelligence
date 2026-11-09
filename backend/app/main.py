@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy import case, func, select, update
@@ -22,6 +22,11 @@ from app.models import (
 )
 
 from app.schemas import (
+    MaintenanceTaskSummaryResponse,
+    MaintenanceTaskCompletionRateResponse,
+    OverdueMaintenanceTaskResponse,
+    MaintenanceTaskAssigneeAnalyticsResponse,
+    MaintenanceTaskBuildingAnalyticsResponse,
     MaintenanceTaskCreate,
     MaintenanceTaskResponse,
     MaintenanceTaskUpdate,
@@ -694,6 +699,255 @@ def get_low_stock_parts(
             threshold=threshold,
         )
         for part in parts
+    ]
+
+@app.get(
+    "/analytics/maintenance-tasks/summary",
+    response_model=MaintenanceTaskSummaryResponse,
+    tags=["Analytics"],
+)
+
+def get_maintenance_task_summary(
+    db: Session = Depends(get_db),
+) -> MaintenanceTaskSummaryResponse:
+
+    statement = select(
+        func.count(MaintenanceTask.id).label("total_tasks"),
+        func.sum(
+            case(
+                (MaintenanceTask.status == MaintenanceTaskStatus.PENDING, 1),
+                else_=0,
+            )
+        ).label("pending_tasks"),
+        func.sum(
+            case(
+                (MaintenanceTask.status == MaintenanceTaskStatus.IN_PROGRESS, 1),
+                else_=0,
+            )
+        ).label("in_progress_tasks"),
+        func.sum(
+            case(
+                (MaintenanceTask.status == MaintenanceTaskStatus.COMPLETED, 1),
+                else_=0,
+            )
+        ).label("completed_tasks"),
+        func.sum(
+            case(
+                (MaintenanceTask.status == MaintenanceTaskStatus.CANCELLED, 1),
+                else_=0,
+            )
+        ).label("cancelled_tasks"),
+    )
+
+    totals = db.execute(statement).one()
+
+    return MaintenanceTaskSummaryResponse(
+        total_tasks=totals.total_tasks,
+        pending_tasks=totals.pending_tasks or 0,
+        in_progress_tasks=totals.in_progress_tasks or 0,
+        completed_tasks=totals.completed_tasks or 0,
+        cancelled_tasks=totals.cancelled_tasks or 0,
+    )
+
+@app.get(
+    "/analytics/maintenance-tasks/completion-rate",
+    response_model=MaintenanceTaskCompletionRateResponse,
+    tags=["Analytics"],
+)
+
+def get_maintenance_task_completion_rate(
+    db: Session = Depends(get_db),
+) -> MaintenanceTaskCompletionRateResponse:
+
+    statement = select(
+        func.count(MaintenanceTask.id).label("total_tasks"),
+        func.sum(
+            case(
+                (MaintenanceTask.status == MaintenanceTaskStatus.COMPLETED, 1),
+                else_=0,
+            )
+        ).label("completed_tasks"),
+    )
+
+    totals = db.execute(statement).one()
+
+    total_tasks = totals.total_tasks
+    completed_tasks = totals.completed_tasks or 0
+
+    completion_rate = (
+        (completed_tasks / total_tasks) * 100
+        if total_tasks > 0
+        else 0.0
+    )
+
+    return MaintenanceTaskCompletionRateResponse(
+        total_tasks=total_tasks,
+        completed_tasks=completed_tasks,
+        completion_rate=round(completion_rate, 2),
+    )
+
+@app.get(
+    "/analytics/maintenance-tasks/overdue",
+    response_model=list[OverdueMaintenanceTaskResponse],
+    tags=["Analytics"],
+)
+
+def get_overdue_maintenance_tasks(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[OverdueMaintenanceTaskResponse]:
+
+    today = date.today()
+
+    statement = (
+        select(
+            MaintenanceTask.id.label("task_id"),
+            MaintenanceTask.title,
+            Unit.id.label("unit_id"),
+            Unit.building_name,
+            Unit.unit_number,
+            MaintenanceTask.assigned_to,
+            MaintenanceTask.priority,
+            MaintenanceTask.due_date,
+        )
+        .join(Unit, MaintenanceTask.unit_id == Unit.id)
+        .where(
+            MaintenanceTask.due_date < today,
+            MaintenanceTask.status.in_([
+                MaintenanceTaskStatus.PENDING,
+                MaintenanceTaskStatus.IN_PROGRESS,
+            ]),
+        )
+        .order_by(MaintenanceTask.due_date.asc())
+        .limit(limit)
+    )
+
+    rows = db.execute(statement).all()
+
+    return [
+        OverdueMaintenanceTaskResponse(
+            task_id=row.task_id,
+            title=row.title,
+            unit_id=row.unit_id,
+            building_name=row.building_name,
+            unit_number=row.unit_number,
+            assigned_to=row.assigned_to,
+            priority=row.priority,
+            due_date=row.due_date,
+            days_overdue=(today - row.due_date).days,
+        )
+        for row in rows
+    ]
+
+@app.get(
+    "/analytics/maintenance-tasks/by-assignee",
+    response_model=list[MaintenanceTaskAssigneeAnalyticsResponse],
+    tags=["Analytics"],
+)
+def get_maintenance_tasks_by_assignee(
+    db: Session = Depends(get_db),
+) -> list[MaintenanceTaskAssigneeAnalyticsResponse]:
+
+    assignee_label = func.coalesce(
+        func.nullif(func.trim(MaintenanceTask.assigned_to), ""),
+        "Unassigned",
+    ).label("assigned_to")
+
+    statement = (
+        select(
+            assignee_label,
+            func.count(MaintenanceTask.id).label("total_tasks"),
+            func.sum(
+                case(
+                    (MaintenanceTask.status == MaintenanceTaskStatus.PENDING, 1),
+                    else_=0,
+                )
+            ).label("pending_tasks"),
+            func.sum(
+                case(
+                    (MaintenanceTask.status == MaintenanceTaskStatus.IN_PROGRESS, 1),
+                    else_=0,
+                )
+            ).label("in_progress_tasks"),
+            func.sum(
+                case(
+                    (MaintenanceTask.status == MaintenanceTaskStatus.COMPLETED, 1),
+                    else_=0,
+                )
+            ).label("completed_tasks"),
+        )
+        .group_by(assignee_label)
+        .order_by(assignee_label.asc())
+    )
+
+    rows = db.execute(statement).all()
+
+    return [
+        MaintenanceTaskAssigneeAnalyticsResponse(
+            assigned_to=row.assigned_to,
+            total_tasks=row.total_tasks,
+            pending_tasks=row.pending_tasks or 0,
+            in_progress_tasks=row.in_progress_tasks or 0,
+            completed_tasks=row.completed_tasks or 0,
+        )
+        for row in rows
+    ]
+
+@app.get(
+    "/analytics/maintenance-tasks/by-building",
+    response_model=list[MaintenanceTaskBuildingAnalyticsResponse],
+    tags=["Analytics"],
+)
+def get_maintenance_tasks_by_building(
+    db: Session = Depends(get_db),
+) -> list[MaintenanceTaskBuildingAnalyticsResponse]:
+
+    statement = (
+        select(
+            Unit.building_name,
+            func.count(MaintenanceTask.id).label("total_tasks"),
+            func.sum(
+                case(
+                    (MaintenanceTask.status == MaintenanceTaskStatus.PENDING, 1),
+                    else_=0,
+                )
+            ).label("pending_tasks"),
+            func.sum(
+                case(
+                    (MaintenanceTask.status == MaintenanceTaskStatus.IN_PROGRESS, 1),
+                    else_=0,
+                )
+            ).label("in_progress_tasks"),
+            func.sum(
+                case(
+                    (MaintenanceTask.status == MaintenanceTaskStatus.COMPLETED, 1),
+                    else_=0,
+                )
+            ).label("completed_tasks"),
+            func.sum(
+                case(
+                    (MaintenanceTask.status == MaintenanceTaskStatus.CANCELLED, 1),
+                    else_=0,
+                )
+            ).label("cancelled_tasks"),
+        )
+        .join(Unit, MaintenanceTask.unit_id == Unit.id)
+        .group_by(Unit.building_name)
+        .order_by(Unit.building_name.asc())
+    )
+
+    rows = db.execute(statement).all()
+
+    return [
+        MaintenanceTaskBuildingAnalyticsResponse(
+            building_name=row.building_name,
+            total_tasks=row.total_tasks,
+            pending_tasks=row.pending_tasks or 0,
+            in_progress_tasks=row.in_progress_tasks or 0,
+            completed_tasks=row.completed_tasks or 0,
+            cancelled_tasks=row.cancelled_tasks or 0,
+        )
+        for row in rows
     ]
 
 @app.post(
