@@ -4,16 +4,22 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-
 from app.database import get_db
+
 from app.models import (
     Part,
+    Unit,
+    UnitStatus,
     WorkOrder,
     WorkOrderPartUsage,
     WorkOrderPriority,
     WorkOrderStatus,
 )
+
 from app.schemas import (
+    UnitCreate,
+    UnitResponse,
+    UnitUpdate,
     MaintenanceCostSummaryResponse,
     CategoryCostResponse,
     WorkOrderCostResponse,
@@ -678,3 +684,120 @@ def get_low_stock_parts(
         )
         for part in parts
     ]
+
+@app.post(
+    "/units",
+    response_model=UnitResponse,
+    status_code=201,
+    tags=["Units"],
+)
+def create_unit(
+    unit_data: UnitCreate,
+    db: Session = Depends(get_db),
+) -> UnitResponse:
+
+    unit = Unit(**unit_data.model_dump())
+
+    db.add(unit)
+
+    try:
+        db.commit()
+        db.refresh(unit)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A unit with this building name and unit number already exists.",
+        )
+
+    return unit
+
+@app.get(
+    "/units",
+    response_model=list[UnitResponse],
+    tags=["Units"],
+)
+def get_units(
+    building_name: str | None = None,
+    status: UnitStatus | None = None,
+    floor_number: int | None = None,
+    limit: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> list[UnitResponse]:
+
+    statement = select(Unit)
+
+    if building_name:
+        statement = statement.where(
+            func.lower(Unit.building_name) == building_name.lower()
+        )
+
+    if status:
+        statement = statement.where(Unit.status == status)
+
+    if floor_number is not None:
+        statement = statement.where(
+            Unit.floor_number == floor_number
+        )
+
+    statement = (
+        statement
+        .order_by(Unit.building_name, Unit.unit_number)
+        .limit(limit)
+    )
+
+    return db.scalars(statement).all()
+
+@app.get(
+    "/units/{unit_id}",
+    response_model=UnitResponse,
+    tags=["Units"],
+)
+def get_unit(
+    unit_id: int,
+    db: Session = Depends(get_db),
+) -> UnitResponse:
+
+    unit = db.get(Unit, unit_id)
+
+    if unit is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Unit not found.",
+        )
+
+    return unit
+
+@app.put(
+    "/units/{unit_id}",
+    response_model=UnitResponse,
+    tags=["Units"],
+)
+def update_unit(
+    unit_id: int,
+    unit_data: UnitUpdate,
+    db: Session = Depends(get_db),
+) -> UnitResponse:
+
+    unit = db.get(Unit, unit_id)
+
+    if unit is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Unit not found.",
+        )
+
+    for field, value in unit_data.model_dump().items():
+        setattr(unit, field, value)
+
+    try:
+        db.commit()
+        db.refresh(unit)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A unit with this building name and unit number already exists.",
+        )
+
+    return unit

@@ -11,6 +11,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -23,6 +24,11 @@ class WorkOrderStatus(PyEnum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
+class UnitStatus(PyEnum):
+    OCCUPIED = "occupied"
+    VACANT = "vacant"
+    UNDER_MAINTENANCE = "under_maintenance"
+    TURNOVER = "turnover"
 
 class WorkOrderPriority(PyEnum):
     LOW = "low"
@@ -214,4 +220,54 @@ class WorkOrderPartUsage(Base):
     part: Mapped["Part"] = relationship(
         "Part",
         back_populates="part_usages",
+    )
+
+class Unit(Base):
+    __tablename__ = "units"
+    __table_args__ = (
+        UniqueConstraint(
+            "building_name",
+            "unit_number",
+            name="uq_units_building_unit",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    building_name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+
+    unit_number: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+
+    floor_number: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    status: Mapped[UnitStatus] = mapped_column(
+        SQLAlchemyEnum(UnitStatus),
+        nullable=False,
+        default=UnitStatus.VACANT,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )

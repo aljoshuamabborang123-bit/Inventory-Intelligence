@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import WorkOrderPriority, WorkOrderStatus
+from app.models import UnitStatus, WorkOrderPriority, WorkOrderStatus
 
 class PartCreate(BaseModel):
     name: str = Field(min_length=1, max_length=150)
@@ -108,3 +108,28 @@ class WorkOrderCostResponse(BaseModel):
 class CategoryCostResponse(BaseModel):
     category: str
     total_parts_cost: Decimal
+
+class UnitCreate(BaseModel):
+    building_name: str = Field(min_length=1, max_length=100)
+    unit_number: str = Field(min_length=1, max_length=50)
+    floor_number: int | None = None
+    status: UnitStatus = UnitStatus.VACANT
+
+
+class UnitUpdate(BaseModel):
+    building_name: str = Field(min_length=1, max_length=100)
+    unit_number: str = Field(min_length=1, max_length=50)
+    floor_number: int | None = None
+    status: UnitStatus
+
+
+class UnitResponse(BaseModel):
+    id: int
+    building_name: str
+    unit_number: str
+    floor_number: int | None
+    status: UnitStatus
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
