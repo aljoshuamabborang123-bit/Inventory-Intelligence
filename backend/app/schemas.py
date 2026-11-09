@@ -253,3 +253,56 @@ class MaintenanceTaskBuildingAnalyticsResponse(BaseModel):
     in_progress_tasks: int
     completed_tasks: int
     cancelled_tasks: int
+
+class DashboardInventoryResponse(BaseModel):
+    total_parts: int
+    total_stock_quantity: int
+    total_inventory_value: Decimal
+    low_stock_count: int
+    out_of_stock_count: int
+    low_stock_threshold: int
+
+
+class DashboardUnitsResponse(BaseModel):
+    total_units: int
+    occupied_units: int
+    vacant_units: int
+    under_maintenance_units: int
+    turnover_units: int
+    occupancy_rate: float
+
+
+class DashboardWorkOrdersResponse(BaseModel):
+    total_work_orders: int
+    open_work_orders: int
+    in_progress_work_orders: int
+    completed_work_orders: int
+    cancelled_work_orders: int
+    high_priority_work_orders: int
+    urgent_priority_work_orders: int
+
+
+class DashboardMaintenanceTasksResponse(BaseModel):
+    total_tasks: int
+    pending_tasks: int
+    in_progress_tasks: int
+    completed_tasks: int
+    cancelled_tasks: int
+    overdue_tasks: int
+    unassigned_tasks: int
+    high_priority_tasks: int
+    urgent_priority_tasks: int
+
+
+class DashboardCostsResponse(BaseModel):
+    total_parts_cost: Decimal
+    total_usage_records: int
+    work_orders_with_cost_count: int
+
+
+class DashboardSummaryResponse(BaseModel):
+    inventory: DashboardInventoryResponse
+    units: DashboardUnitsResponse
+    work_orders: DashboardWorkOrdersResponse
+    maintenance_tasks: DashboardMaintenanceTasksResponse
+    costs: DashboardCostsResponse

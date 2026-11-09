@@ -22,6 +22,12 @@ from app.models import (
 )
 
 from app.schemas import (
+    DashboardInventoryResponse,
+    DashboardUnitsResponse,
+    DashboardWorkOrdersResponse,
+    DashboardMaintenanceTasksResponse,
+    DashboardCostsResponse,
+    DashboardSummaryResponse,
     MaintenanceTaskSummaryResponse,
     MaintenanceTaskCompletionRateResponse,
     OverdueMaintenanceTaskResponse,
@@ -1460,3 +1466,209 @@ def get_maintenance_task(
         )
 
     return maintenance_task
+
+@app.get(
+    "/dashboard/summary",
+    response_model=DashboardSummaryResponse,
+    tags=["Dashboard"],
+)
+def get_dashboard_summary(
+    low_stock_threshold: int = Query(default=10, ge=0),
+    db: Session = Depends(get_db),
+) -> DashboardSummaryResponse:
+
+    # Inventory metrics
+    inventory_statement = select(
+        func.count(Part.id).label("total_parts"),
+        func.coalesce(
+            func.sum(Part.quantity), 0
+        ).label("total_stock_quantity"),
+        func.coalesce(
+            func.sum(Part.quantity * Part.unit_cost), 0
+        ).label("total_inventory_value"),
+        func.count(
+            case((Part.quantity <= low_stock_threshold, 1))
+        ).label("low_stock_count"),
+        func.count(
+            case((Part.quantity == 0, 1))
+        ).label("out_of_stock_count"),
+    )
+
+    inventory = db.execute(inventory_statement).one()
+
+    # Unit metrics
+    units_statement = select(
+        func.count(Unit.id).label("total_units"),
+        func.count(
+            case((Unit.status == UnitStatus.OCCUPIED, 1))
+        ).label("occupied_units"),
+        func.count(
+            case((Unit.status == UnitStatus.VACANT, 1))
+        ).label("vacant_units"),
+        func.count(
+            case((Unit.status == UnitStatus.UNDER_MAINTENANCE, 1))
+        ).label("under_maintenance_units"),
+        func.count(
+            case((Unit.status == UnitStatus.TURNOVER, 1))
+        ).label("turnover_units"),
+    )
+
+    units = db.execute(units_statement).one()
+
+    occupancy_rate = (
+        units.occupied_units / units.total_units * 100
+        if units.total_units > 0
+        else 0.0
+    )
+
+    # Work order metrics
+    work_orders_statement = select(
+        func.count(WorkOrder.id).label("total_work_orders"),
+        func.count(
+            case((WorkOrder.status == WorkOrderStatus.OPEN, 1))
+        ).label("open_work_orders"),
+        func.count(
+            case((
+                WorkOrder.status == WorkOrderStatus.IN_PROGRESS, 1
+            ))
+        ).label("in_progress_work_orders"),
+        func.count(
+            case((
+                WorkOrder.status == WorkOrderStatus.COMPLETED, 1
+            ))
+        ).label("completed_work_orders"),
+        func.count(
+            case((
+                WorkOrder.status == WorkOrderStatus.CANCELLED, 1
+            ))
+        ).label("cancelled_work_orders"),
+        func.count(
+            case((WorkOrder.priority == WorkOrderPriority.HIGH, 1))
+        ).label("high_priority_work_orders"),
+        func.count(
+            case((WorkOrder.priority == WorkOrderPriority.URGENT, 1))
+        ).label("urgent_priority_work_orders"),
+    )
+
+    work_orders = db.execute(work_orders_statement).one()
+
+    # Maintenance task metrics
+    today = date.today()
+
+    overdue_condition = (
+        (MaintenanceTask.due_date < today)
+        & MaintenanceTask.status.in_([
+            MaintenanceTaskStatus.PENDING,
+            MaintenanceTaskStatus.IN_PROGRESS,
+        ])
+    )
+
+    tasks_statement = select(
+        func.count(MaintenanceTask.id).label("total_tasks"),
+        func.count(
+            case((
+                MaintenanceTask.status == MaintenanceTaskStatus.PENDING, 1
+            ))
+        ).label("pending_tasks"),
+        func.count(
+            case((
+                MaintenanceTask.status == MaintenanceTaskStatus.IN_PROGRESS, 1
+            ))
+        ).label("in_progress_tasks"),
+        func.count(
+            case((
+                MaintenanceTask.status == MaintenanceTaskStatus.COMPLETED, 1
+            ))
+        ).label("completed_tasks"),
+        func.count(
+            case((
+                MaintenanceTask.status == MaintenanceTaskStatus.CANCELLED, 1
+            ))
+        ).label("cancelled_tasks"),
+        func.count(
+            case((overdue_condition, 1))
+        ).label("overdue_tasks"),
+        func.count(
+            case((
+                func.trim(
+                    func.coalesce(MaintenanceTask.assigned_to, "")
+                ) == "",
+                1,
+            ))
+        ).label("unassigned_tasks"),
+        func.count(
+            case((
+                MaintenanceTask.priority == WorkOrderPriority.HIGH, 1
+            ))
+        ).label("high_priority_tasks"),
+        func.count(
+            case((
+                MaintenanceTask.priority == WorkOrderPriority.URGENT, 1
+            ))
+        ).label("urgent_priority_tasks"),
+    )
+
+    tasks = db.execute(tasks_statement).one()
+
+    # Recorded maintenance parts costs
+    costs_statement = select(
+        func.coalesce(
+            func.sum(
+                WorkOrderPartUsage.quantity_used
+                * WorkOrderPartUsage.unit_cost
+            ),
+            0,
+        ).label("total_parts_cost"),
+        func.count(
+            WorkOrderPartUsage.id
+        ).label("total_usage_records"),
+        func.count(
+            func.distinct(WorkOrderPartUsage.work_order_id)
+        ).label("work_orders_with_cost_count"),
+    )
+
+    costs = db.execute(costs_statement).one()
+
+    return DashboardSummaryResponse(
+        inventory=DashboardInventoryResponse(
+            total_parts=inventory.total_parts,
+            total_stock_quantity=inventory.total_stock_quantity,
+            total_inventory_value=inventory.total_inventory_value,
+            low_stock_count=inventory.low_stock_count,
+            out_of_stock_count=inventory.out_of_stock_count,
+            low_stock_threshold=low_stock_threshold,
+        ),
+        units=DashboardUnitsResponse(
+            total_units=units.total_units,
+            occupied_units=units.occupied_units,
+            vacant_units=units.vacant_units,
+            under_maintenance_units=units.under_maintenance_units,
+            turnover_units=units.turnover_units,
+            occupancy_rate=round(occupancy_rate, 2),
+        ),
+        work_orders=DashboardWorkOrdersResponse(
+            total_work_orders=work_orders.total_work_orders,
+            open_work_orders=work_orders.open_work_orders,
+            in_progress_work_orders=work_orders.in_progress_work_orders,
+            completed_work_orders=work_orders.completed_work_orders,
+            cancelled_work_orders=work_orders.cancelled_work_orders,
+            high_priority_work_orders=work_orders.high_priority_work_orders,
+            urgent_priority_work_orders=work_orders.urgent_priority_work_orders,
+        ),
+        maintenance_tasks=DashboardMaintenanceTasksResponse(
+            total_tasks=tasks.total_tasks,
+            pending_tasks=tasks.pending_tasks,
+            in_progress_tasks=tasks.in_progress_tasks,
+            completed_tasks=tasks.completed_tasks,
+            cancelled_tasks=tasks.cancelled_tasks,
+            overdue_tasks=tasks.overdue_tasks,
+            unassigned_tasks=tasks.unassigned_tasks,
+            high_priority_tasks=tasks.high_priority_tasks,
+            urgent_priority_tasks=tasks.urgent_priority_tasks,
+        ),
+        costs=DashboardCostsResponse(
+            total_parts_cost=costs.total_parts_cost,
+            total_usage_records=costs.total_usage_records,
+            work_orders_with_cost_count=costs.work_orders_with_cost_count,
+        ),
+    )
