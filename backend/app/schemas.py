@@ -76,3 +76,9 @@ class PartsConsumptionSummaryResponse(BaseModel):
     unique_parts_count: int
     work_orders_with_usage_count: int
     consumption_by_category: list[PartCategoryConsumptionResponse]
+
+class MostUsedPartResponse(BaseModel):
+    part_id: int
+    part_name: str
+    category: str
+    total_quantity_used: int

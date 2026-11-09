@@ -14,6 +14,7 @@ from app.models import (
     WorkOrderStatus,
 )
 from app.schemas import (
+    MostUsedPartResponse,
     PartCreate,
     PartResponse,
     PartUpdate,
@@ -467,3 +468,52 @@ def get_parts_consumption_summary(
             for row in category_rows
         ],
     )
+
+@app.get(
+    "/analytics/most-used-parts",
+    response_model=list[MostUsedPartResponse],
+    tags=["Analytics"],
+)
+def get_most_used_parts(
+    limit: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> list[MostUsedPartResponse]:
+
+    statement = (
+        select(
+            Part.id.label("part_id"),
+            Part.name.label("part_name"),
+            Part.category,
+            func.sum(
+                WorkOrderPartUsage.quantity_used
+            ).label("total_quantity_used"),
+        )
+        .join(
+            WorkOrderPartUsage,
+            WorkOrderPartUsage.part_id == Part.id,
+        )
+        .group_by(
+            Part.id,
+            Part.name,
+            Part.category,
+        )
+        .order_by(
+            func.sum(
+                WorkOrderPartUsage.quantity_used
+            ).desc(),
+            Part.id.asc(),
+        )
+        .limit(limit)
+    )
+
+    rows = db.execute(statement).all()
+
+    return [
+        MostUsedPartResponse(
+            part_id=row.part_id,
+            part_name=row.part_name,
+            category=row.category,
+            total_quantity_used=row.total_quantity_used,
+        )
+        for row in rows
+    ]
