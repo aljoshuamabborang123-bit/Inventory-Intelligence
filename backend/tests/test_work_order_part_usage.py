@@ -147,3 +147,49 @@ def test_record_part_usage_rejects_missing_part() -> None:
     )
 
     assert response.status_code == 404
+
+def test_get_work_order_part_usage_returns_history() -> None:
+    work_order_id = create_in_progress_work_order()
+
+    first_usage = client.post(
+        f"/work-orders/{work_order_id}/part-usage",
+        json={
+            "part_id": 1,
+            "quantity_used": 3,
+        },
+    )
+
+    second_usage = client.post(
+        f"/work-orders/{work_order_id}/part-usage",
+        json={
+            "part_id": 2,
+            "quantity_used": 5,
+        },
+    )
+
+    assert first_usage.status_code == 201
+    assert second_usage.status_code == 201
+
+    response = client.get(
+        f"/work-orders/{work_order_id}/part-usage"
+    )
+
+    assert response.status_code == 200
+
+    history = response.json()
+
+    assert len(history) == 2
+    assert history[0]["part_id"] == 1
+    assert history[0]["quantity_used"] == 3
+    assert history[1]["part_id"] == 2
+    assert history[1]["quantity_used"] == 5
+
+def test_get_work_order_part_usage_returns_empty_list() -> None:
+    work_order_id = create_in_progress_work_order()
+
+    response = client.get(
+        f"/work-orders/{work_order_id}/part-usage"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []

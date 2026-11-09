@@ -363,3 +363,36 @@ def record_part_usage(
         raise
 
     return new_usage
+
+@app.get(
+    "/work-orders/{work_order_id}/part-usage",
+    response_model=list[WorkOrderPartUsageResponse],
+    tags=["Work Order Part Usage"],
+)
+def get_work_order_part_usage(
+    work_order_id: int,
+    db: Session = Depends(get_db),
+) -> list[WorkOrderPartUsageResponse]:
+
+    work_order = db.get(WorkOrder, work_order_id)
+
+    if work_order is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Work order not found",
+        )
+
+    statement = (
+        select(WorkOrderPartUsage)
+        .where(
+            WorkOrderPartUsage.work_order_id == work_order_id
+        )
+        .order_by(
+            WorkOrderPartUsage.recorded_at.asc(),
+            WorkOrderPartUsage.id.asc(),
+        )
+    )
+
+    usages = db.scalars(statement).all()
+
+    return list(usages)
