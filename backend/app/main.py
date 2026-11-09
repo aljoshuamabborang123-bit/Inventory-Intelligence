@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy import case, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -137,8 +138,15 @@ def delete_part(
             detail="Part not found",
         )
 
-    db.delete(part)
-    db.commit()
+    try:
+        db.delete(part)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete part because it has recorded usage history",
+        )
 
 @app.get(
     "/work-orders",
@@ -291,8 +299,15 @@ def delete_work_order(
             detail="Work order not found",
         )
 
-    db.delete(work_order)
-    db.commit()
+    try:
+        db.delete(work_order)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete work order because it has recorded parts usage",
+        )
 
 @app.post(
     "/work-orders/{work_order_id}/part-usage",

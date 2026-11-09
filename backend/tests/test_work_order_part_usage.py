@@ -193,3 +193,59 @@ def test_get_work_order_part_usage_returns_empty_list() -> None:
 
     assert response.status_code == 200
     assert response.json() == []
+
+def test_delete_part_with_usage_history_returns_conflict() -> None:
+    work_order_id = create_in_progress_work_order()
+
+    usage_response = client.post(
+        f"/work-orders/{work_order_id}/part-usage",
+        json={
+            "part_id": 1,
+            "quantity_used": 2,
+        },
+    )
+
+    assert usage_response.status_code == 201
+
+    delete_response = client.delete("/parts/1")
+
+    assert delete_response.status_code == 409
+    assert delete_response.json()["detail"] == (
+        "Cannot delete part because it has recorded usage history"
+    )
+
+    part_response = client.get("/parts/1")
+
+    assert part_response.status_code == 200
+    assert part_response.json()["quantity"] == 48
+
+def test_delete_work_order_with_usage_history_returns_conflict() -> None:
+    work_order_id = create_in_progress_work_order()
+
+    usage_response = client.post(
+        f"/work-orders/{work_order_id}/part-usage",
+        json={
+            "part_id": 1,
+            "quantity_used": 2,
+        },
+    )
+
+    assert usage_response.status_code == 201
+
+    delete_response = client.delete(
+        f"/work-orders/{work_order_id}"
+    )
+
+    assert delete_response.status_code == 409
+    assert delete_response.json()["detail"] == (
+        "Cannot delete work order because it has recorded parts usage"
+    )
+
+    history_response = client.get(
+        f"/work-orders/{work_order_id}/part-usage"
+    )
+
+    assert history_response.status_code == 200
+    assert len(history_response.json()) == 1
+
+    assert history_response.json()[0]["quantity_used"] == 2
