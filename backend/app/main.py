@@ -14,6 +14,9 @@ from app.models import (
     WorkOrderStatus,
 )
 from app.schemas import (
+    MaintenanceCostSummaryResponse,
+    CategoryCostResponse,
+    WorkOrderCostResponse,
     LowStockPartResponse,
     MostUsedPartResponse,
     PartCreate,
@@ -115,7 +118,7 @@ def update_part(
             detail="Part not found",
         )
 
-    for field, value in part.model_dump().items():
+    for field, value in part.model_dump(exclude_none=True).items():
         setattr(existing_part, field, value)
 
     db.commit()
@@ -371,6 +374,7 @@ def record_part_usage(
             work_order_id=work_order_id,
             part_id=usage.part_id,
             quantity_used=usage.quantity_used,
+            unit_cost=part.unit_cost,
         )
 
         db.add(new_usage)
@@ -469,6 +473,130 @@ def get_parts_consumption_summary(
             for row in category_rows
         ],
     )
+
+@app.get(
+    "/analytics/maintenance-costs",
+    response_model=MaintenanceCostSummaryResponse,
+    tags=["Analytics"],
+)
+
+def get_maintenance_cost_summary(
+    db: Session = Depends(get_db),
+) -> MaintenanceCostSummaryResponse:
+
+    statement = select(
+        func.coalesce(
+            func.sum(
+                WorkOrderPartUsage.quantity_used
+                * WorkOrderPartUsage.unit_cost
+            ),
+            0,
+        ).label("total_parts_cost"),
+        func.count(
+            WorkOrderPartUsage.id
+        ).label("total_usage_records"),
+        func.count(
+            func.distinct(WorkOrderPartUsage.work_order_id)
+        ).label("work_orders_with_cost_count"),
+    )
+
+    totals = db.execute(statement).one()
+
+    return MaintenanceCostSummaryResponse(
+        total_parts_cost=totals.total_parts_cost,
+        total_usage_records=totals.total_usage_records,
+        work_orders_with_cost_count=totals.work_orders_with_cost_count,
+    )
+
+@app.get(
+    "/analytics/maintenance-costs/by-work-order",
+    response_model=list[WorkOrderCostResponse],
+    tags=["Analytics"],
+)
+def get_maintenance_costs_by_work_order(
+    db: Session = Depends(get_db),
+) -> list[WorkOrderCostResponse]:
+
+    statement = (
+        select(
+            WorkOrder.id.label("work_order_id"),
+            WorkOrder.title.label("work_order_title"),
+            WorkOrder.unit_number,
+            func.sum(
+                WorkOrderPartUsage.quantity_used
+                * WorkOrderPartUsage.unit_cost
+            ).label("total_parts_cost"),
+        )
+        .join(
+            WorkOrderPartUsage,
+            WorkOrderPartUsage.work_order_id == WorkOrder.id,
+        )
+        .group_by(
+            WorkOrder.id,
+            WorkOrder.title,
+            WorkOrder.unit_number,
+        )
+        .order_by(
+            func.sum(
+                WorkOrderPartUsage.quantity_used
+                * WorkOrderPartUsage.unit_cost
+            ).desc(),
+            WorkOrder.id.asc(),
+        )
+    )
+
+    rows = db.execute(statement).all()
+
+    return [
+        WorkOrderCostResponse(
+            work_order_id=row.work_order_id,
+            work_order_title=row.work_order_title,
+            unit_number=row.unit_number,
+            total_parts_cost=row.total_parts_cost,
+        )
+        for row in rows
+    ]
+
+@app.get(
+    "/analytics/maintenance-costs/by-category",
+    response_model=list[CategoryCostResponse],
+    tags=["Analytics"],
+)
+def get_maintenance_costs_by_category(
+    db: Session = Depends(get_db),
+) -> list[CategoryCostResponse]:
+
+    statement = (
+        select(
+            Part.category,
+            func.sum(
+                WorkOrderPartUsage.quantity_used
+                * WorkOrderPartUsage.unit_cost
+            ).label("total_parts_cost"),
+        )
+        .join(
+            WorkOrderPartUsage,
+            WorkOrderPartUsage.part_id == Part.id,
+        )
+        .group_by(Part.category)
+        .order_by(
+            func.sum(
+                WorkOrderPartUsage.quantity_used
+                * WorkOrderPartUsage.unit_cost
+            ).desc(),
+            Part.category.asc(),
+        )
+    )
+
+    rows = db.execute(statement).all()
+
+    return [
+        CategoryCostResponse(
+            category=row.category,
+            total_parts_cost=row.total_parts_cost,
+        )
+        for row in rows
+    ]
 
 @app.get(
     "/analytics/most-used-parts",

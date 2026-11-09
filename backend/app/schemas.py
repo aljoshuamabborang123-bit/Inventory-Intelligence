@@ -1,20 +1,21 @@
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import WorkOrderPriority, WorkOrderStatus
 
-
 class PartCreate(BaseModel):
     name: str = Field(min_length=1, max_length=150)
     category: str = Field(min_length=1, max_length=100)
     quantity: int = Field(ge=0)
-
+    unit_cost: Decimal = Field(default=Decimal("0.00"), ge=0)
 
 class PartUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=150)
     category: str = Field(min_length=1, max_length=100)
     quantity: int = Field(ge=0)
+    unit_cost: Decimal | None = Field(default=None, ge=0)
 
 
 class PartResponse(BaseModel):
@@ -22,6 +23,7 @@ class PartResponse(BaseModel):
     name: str
     category: str
     quantity: int
+    unit_cost: Decimal
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -64,6 +66,8 @@ class WorkOrderPartUsageResponse(BaseModel):
     part_id: int
     quantity_used: int
     recorded_at: datetime
+    unit_cost: Decimal
+    total_cost: Decimal
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -89,3 +93,18 @@ class LowStockPartResponse(BaseModel):
     category: str
     current_quantity: int
     threshold: int
+
+class MaintenanceCostSummaryResponse(BaseModel):
+    total_parts_cost: Decimal
+    total_usage_records: int
+    work_orders_with_cost_count: int
+
+class WorkOrderCostResponse(BaseModel):
+    work_order_id: int
+    work_order_title: str
+    unit_number: str
+    total_parts_cost: Decimal
+
+class CategoryCostResponse(BaseModel):
+    category: str
+    total_parts_cost: Decimal

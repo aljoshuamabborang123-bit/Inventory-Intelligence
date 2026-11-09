@@ -249,3 +249,82 @@ def test_delete_work_order_with_usage_history_returns_conflict() -> None:
     assert len(history_response.json()) == 1
 
     assert history_response.json()[0]["quantity_used"] == 2
+
+def test_record_part_usage_captures_historical_unit_cost() -> None:
+    # Set the current inventory cost.
+    update_response = client.put(
+        "/parts/1",
+        json={
+            "name": "LED Bulb 9W",
+            "category": "electrical",
+            "quantity": 50,
+            "unit_cost": "85.75",
+        },
+    )
+
+    assert update_response.status_code == 200
+
+    work_order_id = create_in_progress_work_order()
+
+    response = client.post(
+        f"/work-orders/{work_order_id}/part-usage",
+        json={
+            "part_id": 1,
+            "quantity_used": 3,
+        },
+    )
+
+    assert response.status_code == 201
+
+    usage = response.json()
+
+    assert usage["unit_cost"] == "85.75"
+    assert usage["total_cost"] == "257.25"
+
+def test_historical_usage_cost_does_not_change_after_price_update() -> None:
+    client.put(
+        "/parts/1",
+        json={
+            "name": "LED Bulb 9W",
+            "category": "electrical",
+            "quantity": 50,
+            "unit_cost": "85.75",
+        },
+    )
+
+    work_order_id = create_in_progress_work_order()
+
+    usage_response = client.post(
+        f"/work-orders/{work_order_id}/part-usage",
+        json={
+            "part_id": 1,
+            "quantity_used": 3,
+        },
+    )
+
+    assert usage_response.status_code == 201
+
+    # Change the current inventory price.
+    update_response = client.put(
+        "/parts/1",
+        json={
+            "name": "LED Bulb 9W",
+            "category": "electrical",
+            "quantity": 47,
+            "unit_cost": "100.00",
+        },
+    )
+
+    assert update_response.status_code == 200
+
+    # Retrieve the original usage history.
+    history_response = client.get(
+        f"/work-orders/{work_order_id}/part-usage"
+    )
+
+    assert history_response.status_code == 200
+
+    usage = history_response.json()[0]
+
+    assert usage["unit_cost"] == "85.75"
+    assert usage["total_cost"] == "257.25"

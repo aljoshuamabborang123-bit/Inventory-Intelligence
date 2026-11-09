@@ -125,3 +125,45 @@ def test_delete_part_not_found() -> None:
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Part not found"
+
+def test_create_part_with_unit_cost() -> None:
+    payload = {
+        "name": "Copper Wire",
+        "category": "electrical",
+        "quantity": 100,
+        "unit_cost": "125.50",
+    }
+
+    response = client.post("/parts", json=payload)
+
+    assert response.status_code == 201
+
+    data = response.json()
+
+    assert data["name"] == "Copper Wire"
+    assert data["unit_cost"] == "125.50"
+
+def test_update_part_unit_cost() -> None:
+    payload = {
+        "name": "LED Bulb 9W",
+        "category": "electrical",
+        "quantity": 50,
+        "unit_cost": "85.75",
+    }
+
+    response = client.put("/parts/1", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["unit_cost"] == "85.75"
+
+def test_update_part_without_unit_cost_preserves_existing_cost() -> None:
+    payload = {
+        "name": "LED Bulb 9W Updated",
+        "category": "electrical",
+        "quantity": 50,
+    }
+
+    response = client.put("/parts/1", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["unit_cost"] == "0.00"

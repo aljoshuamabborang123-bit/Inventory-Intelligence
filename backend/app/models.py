@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from enum import Enum as PyEnum
+from decimal import Decimal
 
 from sqlalchemy import (
     CheckConstraint,
@@ -7,9 +8,11 @@ from sqlalchemy import (
     Enum as SQLAlchemyEnum,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
 )
+
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -145,6 +148,12 @@ class Part(Base):
         default=0,
     )
 
+    unit_cost: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+    )
+
     part_usages: Mapped[list["WorkOrderPartUsage"]] = relationship(
         "WorkOrderPartUsage",
         back_populates="part",
@@ -182,12 +191,21 @@ class WorkOrderPartUsage(Base):
         nullable=False,
     )
 
+    unit_cost: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+    )
+
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(UTC),
     )
 
+    @property
+    def total_cost(self) -> Decimal:
+        return self.quantity_used * self.unit_cost
     work_order: Mapped["WorkOrder"] = relationship(
         "WorkOrder",
         back_populates="part_usages",
