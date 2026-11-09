@@ -1,9 +1,10 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import Enum as PyEnum
 from decimal import Decimal
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     DateTime,
     Enum as SQLAlchemyEnum,
     ForeignKey,
@@ -29,6 +30,12 @@ class UnitStatus(PyEnum):
     VACANT = "vacant"
     UNDER_MAINTENANCE = "under_maintenance"
     TURNOVER = "turnover"
+
+class UnitTurnStatus(PyEnum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
 
 class WorkOrderPriority(PyEnum):
     LOW = "low"
@@ -270,4 +277,65 @@ class Unit(Base):
         nullable=False,
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
+    )
+
+    turns: Mapped[list["UnitTurn"]] = relationship(
+        back_populates="unit",
+    )
+
+class UnitTurn(Base):
+    __tablename__ = "unit_turns"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    unit_id: Mapped[int] = mapped_column(
+        ForeignKey("units.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    move_out_date: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
+    status: Mapped[UnitTurnStatus] = mapped_column(
+        SQLAlchemyEnum(UnitTurnStatus),
+        nullable=False,
+        default=UnitTurnStatus.PENDING,
+    )
+
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    notes: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    unit: Mapped["Unit"] = relationship(
+        back_populates="turns",
     )

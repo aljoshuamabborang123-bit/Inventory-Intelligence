@@ -10,6 +10,8 @@ from app.models import (
     Part,
     Unit,
     UnitStatus,
+    UnitTurn,
+    UnitTurnStatus,
     WorkOrder,
     WorkOrderPartUsage,
     WorkOrderPriority,
@@ -20,6 +22,9 @@ from app.schemas import (
     UnitCreate,
     UnitResponse,
     UnitUpdate,
+    UnitTurnCreate,
+    UnitTurnResponse,
+    UnitTurnUpdate,
     MaintenanceCostSummaryResponse,
     CategoryCostResponse,
     WorkOrderCostResponse,
@@ -801,3 +806,184 @@ def update_unit(
         )
 
     return unit
+
+@app.post(
+    "/unit-turns",
+    response_model=UnitTurnResponse,
+    status_code=201,
+    tags=["Unit Turns"],
+)
+def create_unit_turn(
+    turn_data: UnitTurnCreate,
+    db: Session = Depends(get_db),
+) -> UnitTurnResponse:
+
+    unit = db.get(Unit, turn_data.unit_id)
+
+    if unit is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Unit not found.",
+        )
+
+    active_turn = db.scalar(
+        select(UnitTurn.id).where(
+            UnitTurn.unit_id == turn_data.unit_id,
+            UnitTurn.status.in_([
+                UnitTurnStatus.PENDING,
+                UnitTurnStatus.IN_PROGRESS,
+            ]),
+        )
+    )
+
+    if active_turn is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This unit already has an active turnover.",
+        )
+
+    unit_turn = UnitTurn(**turn_data.model_dump())
+
+    db.add(unit_turn)
+    db.commit()
+    db.refresh(unit_turn)
+
+    return unit_turn
+
+@app.get(
+    "/unit-turns",
+    response_model=list[UnitTurnResponse],
+    tags=["Unit Turns"],
+)
+def get_unit_turns(
+    unit_id: int | None = Query(default=None, gt=0),
+    status: UnitTurnStatus | None = None,
+    limit: int = Query(default=100, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> list[UnitTurnResponse]:
+
+    statement = select(UnitTurn)
+
+    if unit_id is not None:
+        statement = statement.where(
+            UnitTurn.unit_id == unit_id
+        )
+
+    if status is not None:
+        statement = statement.where(
+            UnitTurn.status == status
+        )
+
+    statement = (
+        statement
+        .order_by(UnitTurn.move_out_date.desc(), UnitTurn.id.desc())
+        .limit(limit)
+    )
+
+    return list(db.scalars(statement).all())
+
+@app.put(
+    "/unit-turns/{turn_id}",
+    response_model=UnitTurnResponse,
+    tags=["Unit Turns"],
+)
+def update_unit_turn(
+    turn_id: int,
+    turn_data: UnitTurnUpdate,
+    db: Session = Depends(get_db),
+) -> UnitTurnResponse:
+
+    unit_turn = db.get(UnitTurn, turn_id)
+
+    if unit_turn is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Unit turn not found.",
+        )
+
+    allowed_transitions = {
+        UnitTurnStatus.PENDING: {
+            UnitTurnStatus.IN_PROGRESS,
+            UnitTurnStatus.COMPLETED,
+            UnitTurnStatus.CANCELLED,
+        },
+        UnitTurnStatus.IN_PROGRESS: {
+            UnitTurnStatus.COMPLETED,
+            UnitTurnStatus.CANCELLED,
+        },
+        UnitTurnStatus.COMPLETED: set(),
+        UnitTurnStatus.CANCELLED: set(),
+    }
+
+    if (
+        turn_data.status != unit_turn.status
+        and turn_data.status not in allowed_transitions[unit_turn.status]
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This turnover status transition is not allowed.",
+        )
+
+    if turn_data.status in {
+        UnitTurnStatus.PENDING,
+        UnitTurnStatus.IN_PROGRESS,
+    }:
+        active_turn = db.scalar(
+            select(UnitTurn.id).where(
+                UnitTurn.unit_id == unit_turn.unit_id,
+                UnitTurn.id != unit_turn.id,
+                UnitTurn.status.in_([
+                    UnitTurnStatus.PENDING,
+                    UnitTurnStatus.IN_PROGRESS,
+                ]),
+            )
+        )
+
+        if active_turn is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="This unit already has another active turnover.",
+            )
+
+    previous_status = unit_turn.status
+
+    unit_turn.move_out_date = turn_data.move_out_date
+    unit_turn.status = turn_data.status
+    unit_turn.notes = turn_data.notes
+
+    if (
+        previous_status != UnitTurnStatus.IN_PROGRESS
+        and turn_data.status == UnitTurnStatus.IN_PROGRESS
+    ):
+        unit_turn.started_at = datetime.now(UTC)
+
+    if (
+        previous_status != UnitTurnStatus.COMPLETED
+        and turn_data.status == UnitTurnStatus.COMPLETED
+    ):
+        unit_turn.completed_at = datetime.now(UTC)
+
+    db.commit()
+    db.refresh(unit_turn)
+
+    return unit_turn
+
+@app.get(
+    "/unit-turns/{turn_id}",
+    response_model=UnitTurnResponse,
+    tags=["Unit Turns"],
+)
+def get_unit_turn(
+    turn_id: int,
+    db: Session = Depends(get_db),
+) -> UnitTurnResponse:
+
+    unit_turn = db.get(UnitTurn, turn_id)
+
+    if unit_turn is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Unit turn not found.",
+        )
+
+    return unit_turn

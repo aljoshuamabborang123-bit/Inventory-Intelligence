@@ -1,9 +1,14 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import UnitStatus, WorkOrderPriority, WorkOrderStatus
+from app.models import (
+    UnitStatus,
+    UnitTurnStatus,
+    WorkOrderPriority,
+    WorkOrderStatus,
+)
 
 class PartCreate(BaseModel):
     name: str = Field(min_length=1, max_length=150)
@@ -129,6 +134,31 @@ class UnitResponse(BaseModel):
     unit_number: str
     floor_number: int | None
     status: UnitStatus
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class UnitTurnCreate(BaseModel):
+    unit_id: int = Field(gt=0)
+    move_out_date: date
+    notes: str | None = None
+
+
+class UnitTurnUpdate(BaseModel):
+    move_out_date: date
+    status: UnitTurnStatus
+    notes: str | None = None
+
+
+class UnitTurnResponse(BaseModel):
+    id: int
+    unit_id: int
+    move_out_date: date
+    status: UnitTurnStatus
+    started_at: datetime | None
+    completed_at: datetime | None
+    notes: str | None
     created_at: datetime
     updated_at: datetime
 
