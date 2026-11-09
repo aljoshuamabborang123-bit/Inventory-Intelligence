@@ -22,6 +22,8 @@ from app.schemas import (
     WorkOrderPartUsageResponse,
     WorkOrderResponse,
     WorkOrderUpdate,
+    PartCategoryConsumptionResponse,
+    PartsConsumptionSummaryResponse,
 )
 
 app = FastAPI(title="Inventory Intelligence API", version="0.1.0")
@@ -411,3 +413,57 @@ def get_work_order_part_usage(
     usages = db.scalars(statement).all()
 
     return list(usages)
+
+@app.get(
+    "/analytics/parts-consumption",
+    response_model=PartsConsumptionSummaryResponse,
+    tags=["Analytics"],
+)
+def get_parts_consumption_summary(
+    db: Session = Depends(get_db),
+) -> PartsConsumptionSummaryResponse:
+
+    totals_statement = select(
+        func.coalesce(
+            func.sum(WorkOrderPartUsage.quantity_used),
+            0,
+        ).label("total_quantity_consumed"),
+        func.count(
+            func.distinct(WorkOrderPartUsage.part_id)
+        ).label("unique_parts_count"),
+        func.count(
+            func.distinct(WorkOrderPartUsage.work_order_id)
+        ).label("work_orders_with_usage_count"),
+    )
+
+    totals = db.execute(totals_statement).one()
+
+    category_statement = (
+        select(
+            Part.category,
+            func.sum(
+                WorkOrderPartUsage.quantity_used
+            ).label("total_quantity_used"),
+        )
+        .join(
+            WorkOrderPartUsage,
+            WorkOrderPartUsage.part_id == Part.id,
+        )
+        .group_by(Part.category)
+        .order_by(Part.category.asc())
+    )
+
+    category_rows = db.execute(category_statement).all()
+
+    return PartsConsumptionSummaryResponse(
+        total_quantity_consumed=totals.total_quantity_consumed,
+        unique_parts_count=totals.unique_parts_count,
+        work_orders_with_usage_count=totals.work_orders_with_usage_count,
+        consumption_by_category=[
+            PartCategoryConsumptionResponse(
+                category=row.category,
+                total_quantity_used=row.total_quantity_used,
+            )
+            for row in category_rows
+        ],
+    )

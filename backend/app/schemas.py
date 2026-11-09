@@ -66,3 +66,13 @@ class WorkOrderPartUsageResponse(BaseModel):
     recorded_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class PartCategoryConsumptionResponse(BaseModel):
+    category: str
+    total_quantity_used: int
+
+class PartsConsumptionSummaryResponse(BaseModel):
+    total_quantity_consumed: int
+    unique_parts_count: int
+    work_orders_with_usage_count: int
+    consumption_by_category: list[PartCategoryConsumptionResponse]
