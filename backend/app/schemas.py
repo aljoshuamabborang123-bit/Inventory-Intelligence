@@ -4,6 +4,8 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import (
+    MaintenanceTaskCategory,
+    MaintenanceTaskStatus,
     UnitStatus,
     UnitTurnStatus,
     WorkOrderPriority,
@@ -159,6 +161,56 @@ class UnitTurnResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     notes: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class MaintenanceTaskCreate(BaseModel):
+    unit_id: int = Field(gt=0)
+    unit_turn_id: int | None = Field(default=None, gt=0)
+    work_order_id: int | None = Field(default=None, gt=0)
+
+    title: str = Field(min_length=1, max_length=200)
+    description: str
+
+    category: MaintenanceTaskCategory = MaintenanceTaskCategory.OTHER
+    priority: WorkOrderPriority = WorkOrderPriority.MEDIUM
+
+    assigned_to: str | None = Field(default=None, max_length=150)
+    due_date: date | None = None
+
+class MaintenanceTaskUpdate(BaseModel):
+    unit_turn_id: int | None = Field(default=None, gt=0)
+    work_order_id: int | None = Field(default=None, gt=0)
+
+    title: str = Field(min_length=1, max_length=200)
+    description: str
+
+    category: MaintenanceTaskCategory
+    status: MaintenanceTaskStatus
+    priority: WorkOrderPriority
+
+    assigned_to: str | None = Field(default=None, max_length=150)
+    due_date: date | None = None
+
+class MaintenanceTaskResponse(BaseModel):
+    id: int
+    unit_id: int
+    unit_turn_id: int | None
+    work_order_id: int | None
+
+    title: str
+    description: str
+
+    category: MaintenanceTaskCategory
+    status: MaintenanceTaskStatus
+    priority: WorkOrderPriority
+
+    assigned_to: str | None
+    due_date: date | None
+    completed_at: datetime | None
+
     created_at: datetime
     updated_at: datetime
 

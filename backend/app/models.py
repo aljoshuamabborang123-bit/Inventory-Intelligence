@@ -37,6 +37,18 @@ class UnitTurnStatus(PyEnum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
+class MaintenanceTaskStatus(PyEnum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+class MaintenanceTaskCategory(PyEnum):
+    REPAIR = "repair"
+    CLEANING = "cleaning"
+    INSPECTION = "inspection"
+    OTHER = "other"
+
 class WorkOrderPriority(PyEnum):
     LOW = "low"
     MEDIUM = "medium"
@@ -127,6 +139,10 @@ class WorkOrder(Base):
         "WorkOrderPartUsage",
         back_populates="work_order",
         passive_deletes="all",
+    )
+
+    maintenance_tasks: Mapped[list["MaintenanceTask"]] = relationship(
+        back_populates="work_order",
     )
 
 class Part(Base):
@@ -283,6 +299,10 @@ class Unit(Base):
         back_populates="unit",
     )
 
+    maintenance_tasks: Mapped[list["MaintenanceTask"]] = relationship(
+        back_populates="unit",
+    )
+
 class UnitTurn(Base):
     __tablename__ = "unit_turns"
 
@@ -338,4 +358,124 @@ class UnitTurn(Base):
 
     unit: Mapped["Unit"] = relationship(
         back_populates="turns",
+    )
+
+    maintenance_tasks: Mapped[list["MaintenanceTask"]] = relationship(
+        back_populates="unit_turn",
+    )
+
+class MaintenanceTask(Base):
+    __tablename__ = "maintenance_tasks"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    unit_id: Mapped[int] = mapped_column(
+        ForeignKey("units.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    unit_turn_id: Mapped[int | None] = mapped_column(
+        ForeignKey("unit_turns.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+
+    work_order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("work_orders.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+
+    title: Mapped[str] = mapped_column(
+        String(200),
+        nullable=False,
+    )
+
+    description: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    category: Mapped[MaintenanceTaskCategory] = mapped_column(
+        SQLAlchemyEnum(
+            MaintenanceTaskCategory,
+            name="maintenance_task_category",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [
+                member.value for member in enum_cls
+            ],
+        ),
+        nullable=False,
+        default=MaintenanceTaskCategory.OTHER,
+    )
+
+    status: Mapped[MaintenanceTaskStatus] = mapped_column(
+        SQLAlchemyEnum(
+            MaintenanceTaskStatus,
+            name="maintenance_task_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [
+                member.value for member in enum_cls
+            ],
+        ),
+        nullable=False,
+        default=MaintenanceTaskStatus.PENDING,
+    )
+
+    priority: Mapped[WorkOrderPriority] = mapped_column(
+        SQLAlchemyEnum(
+            WorkOrderPriority,
+            name="maintenance_task_priority",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [
+                member.value for member in enum_cls
+            ],
+        ),
+        nullable=False,
+        default=WorkOrderPriority.MEDIUM,
+    )
+
+    assigned_to: Mapped[str | None] = mapped_column(
+        String(150),
+        nullable=True,
+    )
+
+    due_date: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+    )
+
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    unit: Mapped["Unit"] = relationship(
+        back_populates="maintenance_tasks",
+    )
+
+    unit_turn: Mapped["UnitTurn | None"] = relationship(
+        back_populates="maintenance_tasks",
+    )
+
+    work_order: Mapped["WorkOrder | None"] = relationship(
+        back_populates="maintenance_tasks",
     )

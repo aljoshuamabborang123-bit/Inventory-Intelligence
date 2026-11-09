@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 
 from app.models import (
+    MaintenanceTask,
+    MaintenanceTaskCategory,
+    MaintenanceTaskStatus,
     Part,
     Unit,
     UnitStatus,
@@ -19,6 +22,9 @@ from app.models import (
 )
 
 from app.schemas import (
+    MaintenanceTaskCreate,
+    MaintenanceTaskResponse,
+    MaintenanceTaskUpdate,
     UnitCreate,
     UnitResponse,
     UnitUpdate,
@@ -987,3 +993,216 @@ def get_unit_turn(
         )
 
     return unit_turn
+
+@app.post(
+    "/maintenance-tasks",
+    response_model=MaintenanceTaskResponse,
+    status_code=201,
+    tags=["Maintenance Tasks"],
+)
+def create_maintenance_task(
+    task_data: MaintenanceTaskCreate,
+    db: Session = Depends(get_db),
+) -> MaintenanceTaskResponse:
+
+    unit = db.get(Unit, task_data.unit_id)
+
+    if unit is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Unit not found.",
+        )
+
+    if task_data.unit_turn_id is not None:
+        unit_turn = db.get(UnitTurn, task_data.unit_turn_id)
+
+        if unit_turn is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Unit turn not found.",
+            )
+
+        if unit_turn.unit_id != task_data.unit_id:
+            raise HTTPException(
+                status_code=409,
+                detail="The unit turn does not belong to the specified unit.",
+            )
+
+    if task_data.work_order_id is not None:
+        work_order = db.get(WorkOrder, task_data.work_order_id)
+
+        if work_order is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Work order not found.",
+            )
+
+    maintenance_task = MaintenanceTask(
+        **task_data.model_dump(),
+    )
+
+    db.add(maintenance_task)
+    db.commit()
+    db.refresh(maintenance_task)
+
+    return maintenance_task
+
+@app.get(
+    "/maintenance-tasks",
+    response_model=list[MaintenanceTaskResponse],
+    tags=["Maintenance Tasks"],
+)
+def get_maintenance_tasks(
+    unit_id: int | None = Query(default=None, gt=0),
+    unit_turn_id: int | None = Query(default=None, gt=0),
+    work_order_id: int | None = Query(default=None, gt=0),
+    status: MaintenanceTaskStatus | None = None,
+    category: MaintenanceTaskCategory | None = None,
+    priority: WorkOrderPriority | None = None,
+    limit: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> list[MaintenanceTaskResponse]:
+
+    statement = select(MaintenanceTask)
+
+    if unit_id is not None:
+        statement = statement.where(
+            MaintenanceTask.unit_id == unit_id
+        )
+
+    if unit_turn_id is not None:
+        statement = statement.where(
+            MaintenanceTask.unit_turn_id == unit_turn_id
+        )
+
+    if work_order_id is not None:
+        statement = statement.where(
+            MaintenanceTask.work_order_id == work_order_id
+        )
+
+    if status is not None:
+        statement = statement.where(
+            MaintenanceTask.status == status
+        )
+
+    if category is not None:
+        statement = statement.where(
+            MaintenanceTask.category == category
+        )
+
+    if priority is not None:
+        statement = statement.where(
+            MaintenanceTask.priority == priority
+        )
+
+    statement = (
+        statement
+        .order_by(MaintenanceTask.created_at.desc())
+        .limit(limit)
+    )
+
+    return list(db.scalars(statement).all())
+
+@app.put(
+    "/maintenance-tasks/{task_id}",
+    response_model=MaintenanceTaskResponse,
+    tags=["Maintenance Tasks"],
+)
+def update_maintenance_task(
+    task_id: int,
+    task_data: MaintenanceTaskUpdate,
+    db: Session = Depends(get_db),
+) -> MaintenanceTaskResponse:
+
+    maintenance_task = db.get(MaintenanceTask, task_id)
+
+    if maintenance_task is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Maintenance task not found.",
+        )
+
+    allowed_transitions = {
+        MaintenanceTaskStatus.PENDING: {
+            MaintenanceTaskStatus.IN_PROGRESS,
+            MaintenanceTaskStatus.COMPLETED,
+            MaintenanceTaskStatus.CANCELLED,
+        },
+        MaintenanceTaskStatus.IN_PROGRESS: {
+            MaintenanceTaskStatus.COMPLETED,
+            MaintenanceTaskStatus.CANCELLED,
+        },
+        MaintenanceTaskStatus.COMPLETED: set(),
+        MaintenanceTaskStatus.CANCELLED: set(),
+    }
+
+    if (
+        task_data.status != maintenance_task.status
+        and task_data.status not in allowed_transitions[maintenance_task.status]
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This maintenance task status transition is not allowed.",
+        )
+
+    if task_data.unit_turn_id is not None:
+        unit_turn = db.get(UnitTurn, task_data.unit_turn_id)
+
+        if unit_turn is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Unit turn not found.",
+            )
+
+        if unit_turn.unit_id != maintenance_task.unit_id:
+            raise HTTPException(
+                status_code=409,
+                detail="The unit turn does not belong to this task's unit.",
+            )
+
+    if task_data.work_order_id is not None:
+        work_order = db.get(WorkOrder, task_data.work_order_id)
+
+        if work_order is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Work order not found.",
+            )
+
+    previous_status = maintenance_task.status
+
+    update_data = task_data.model_dump()
+
+    for field, value in update_data.items():
+        setattr(maintenance_task, field, value)
+
+    if (
+        previous_status != MaintenanceTaskStatus.COMPLETED
+        and task_data.status == MaintenanceTaskStatus.COMPLETED
+    ):
+        maintenance_task.completed_at = datetime.now(UTC)
+
+    db.commit()
+    db.refresh(maintenance_task)
+
+    return maintenance_task
+
+@app.get(
+    "/maintenance-tasks/{task_id}",
+    response_model=MaintenanceTaskResponse,
+    tags=["Maintenance Tasks"],
+)
+def get_maintenance_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> MaintenanceTaskResponse:
+
+    maintenance_task = db.get(MaintenanceTask, task_id)
+
+    if maintenance_task is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Maintenance task not found.",
+        )
+
+    return maintenance_task
