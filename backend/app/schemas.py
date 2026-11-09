@@ -82,3 +82,10 @@ class MostUsedPartResponse(BaseModel):
     part_name: str
     category: str
     total_quantity_used: int
+
+class LowStockPartResponse(BaseModel):
+    part_id: int
+    part_name: str
+    category: str
+    current_quantity: int
+    threshold: int

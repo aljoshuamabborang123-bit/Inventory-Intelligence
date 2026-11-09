@@ -14,6 +14,7 @@ from app.models import (
     WorkOrderStatus,
 )
 from app.schemas import (
+    LowStockPartResponse,
     MostUsedPartResponse,
     PartCreate,
     PartResponse,
@@ -516,4 +517,36 @@ def get_most_used_parts(
             total_quantity_used=row.total_quantity_used,
         )
         for row in rows
+    ]
+
+@app.get(
+    "/analytics/low-stock",
+    response_model=list[LowStockPartResponse],
+    tags=["Analytics"],
+)
+def get_low_stock_parts(
+    threshold: int = Query(default=10, ge=0),
+    db: Session = Depends(get_db),
+) -> list[LowStockPartResponse]:
+
+    statement = (
+        select(Part)
+        .where(Part.quantity <= threshold)
+        .order_by(
+            Part.quantity.asc(),
+            Part.name.asc(),
+        )
+    )
+
+    parts = db.scalars(statement).all()
+
+    return [
+        LowStockPartResponse(
+            part_id=part.id,
+            part_name=part.name,
+            category=part.category,
+            current_quantity=part.quantity,
+            threshold=threshold,
+        )
+        for part in parts
     ]

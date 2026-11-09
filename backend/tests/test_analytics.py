@@ -214,3 +214,35 @@ def test_most_used_parts_respects_limit_parameter() -> None:
     assert response.status_code == 200
     assert len(response.json()) == 2
     assert [part["part_id"] for part in response.json()] == [2, 3]
+
+def test_low_stock_returns_empty_list_when_no_parts_meet_threshold() -> None:
+    response = client.get("/analytics/low-stock")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_low_stock_identifies_parts_below_custom_threshold() -> None:
+    response = client.get("/analytics/low-stock?threshold=25")
+
+    assert response.status_code == 200
+
+    assert response.json() == [
+        {
+            "part_id": 3,
+            "part_name": "Electrical Outlet",
+            "category": "electrical",
+            "current_quantity": 20,
+            "threshold": 25,
+        }
+    ]
+
+def test_low_stock_respects_custom_threshold_and_sorting() -> None:
+    response = client.get("/analytics/low-stock?threshold=30")
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert [part["part_id"] for part in data] == [3, 2]
+    assert [part["current_quantity"] for part in data] == [20, 30]
